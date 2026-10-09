@@ -339,7 +339,6 @@ end)
 CloseBtn.MouseButton1Click:Connect(function()
 	AdminGui.Enabled = false
 end)
-
 UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.End then
@@ -352,10 +351,14 @@ local EspBoxEnabled = false
 local EspNameEnabled = false
 local EspObjects = {}
 
+local function GetHpColor(ratio)
+	return Color3.fromRGB(math.floor((1-ratio)*255), math.floor(ratio*220), 30)
+end
+
 local function clearEsp(plr)
 	if EspObjects[plr] then
 		for _, obj in pairs(EspObjects[plr]) do
-			if obj.Remove then obj:Remove() end
+			pcall(function() obj:Remove() end)
 		end
 		EspObjects[plr] = nil
 	end
@@ -364,18 +367,55 @@ end
 local function createEsp(plr)
 	if plr == LocalPlayer then return end
 	clearEsp(plr)
+
 	local box = Drawing.new("Square")
 	box.Thickness = 1.5
 	box.Filled = false
 	box.Color = Color3.fromRGB(0, 255, 100)
 	box.Visible = false
-	local name = Drawing.new("Text")
-	name.Size = 16
-	name.Center = true
-	name.Outline = true
-	name.Color = Color3.fromRGB(255, 255, 255)
-	name.Visible = false
-	EspObjects[plr] = {Box = box, Name = name}
+
+	local nameLbl = Drawing.new("Text")
+	nameLbl.Size = 16
+	nameLbl.Center = true
+	nameLbl.Outline = true
+	nameLbl.Color = Color3.fromRGB(255, 255, 255)
+	nameLbl.Visible = false
+
+	local teamLbl = Drawing.new("Text")
+	teamLbl.Size = 11
+	teamLbl.Center = true
+	teamLbl.Outline = true
+	teamLbl.Color = Color3.fromRGB(255, 220, 60)
+	teamLbl.Visible = false
+
+	local hpBarBg = Drawing.new("Square")
+	hpBarBg.Filled = true
+	hpBarBg.Thickness = 1
+	hpBarBg.Color = Color3.fromRGB(0, 0, 0)
+	hpBarBg.Transparency = 0.5
+	hpBarBg.Visible = false
+
+	local hpBar = Drawing.new("Square")
+	hpBar.Filled = true
+	hpBar.Thickness = 1
+	hpBar.Color = Color3.fromRGB(80, 255, 80)
+	hpBar.Visible = false
+
+	local hpLbl = Drawing.new("Text")
+	hpLbl.Size = 11
+	hpLbl.Center = false
+	hpLbl.Outline = true
+	hpLbl.Color = Color3.fromRGB(80, 255, 80)
+	hpLbl.Visible = false
+
+	EspObjects[plr] = {
+		Box = box,
+		Name = nameLbl,
+		Team = teamLbl,
+		HpBarBg = hpBarBg,
+		HpBar = hpBar,
+		HpLbl = hpLbl,
+	}
 end
 
 local function updateEsp()
@@ -386,33 +426,78 @@ local function updateEsp()
 		local char = plr.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local head = char and char:FindFirstChild("Head")
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hum  = char and char:FindFirstChildOfClass("Humanoid")
+
 		if not root or not head or not hum or hum.Health <= 0 then
-			objs.Box.Visible = false
-			objs.Name.Visible = false
+			for _, o in pairs(objs) do pcall(function() o.Visible = false end) end
 			continue
 		end
+
 		local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
 		if not onScreen then
-			objs.Box.Visible = false
-			objs.Name.Visible = false
+			for _, o in pairs(objs) do pcall(function() o.Visible = false end) end
 			continue
 		end
+
+		local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+		local legPos  = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+		local height  = math.abs(headPos.Y - legPos.Y)
+		local width   = height / 2
+		local left    = pos.X - width / 2
+		local top     = headPos.Y
+
+		local teamColor = plr.Team and plr.TeamColor.Color or Color3.fromRGB(200, 200, 200)
+		local teamName  = plr.Team and plr.Team.Name or "없음"
+		local hp        = math.floor(hum.Health)
+		local maxHp     = math.max(math.floor(hum.MaxHealth), 1)
+		local ratio     = hp / maxHp
+		local hpColor   = GetHpColor(ratio)
+
+		-- 박스
 		if EspBoxEnabled then
-			local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-			local legPos = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
-			local height = math.abs(headPos.Y - legPos.Y)
-			local width = height / 2
-			objs.Box.Size = Vector2.new(width, height)
-			objs.Box.Position = Vector2.new(pos.X - width/2, pos.Y - height/2)
-			objs.Box.Visible = true
+			objs.Box.Size     = Vector2.new(width, height)
+			objs.Box.Position = Vector2.new(left, top)
+			objs.Box.Color    = teamColor
+			objs.Box.Visible  = true
+
+			-- 체력 바 배경 (박스 왼쪽)
+			local barW  = 4
+			local barX  = left - barW - 2
+			local fillH = math.max(math.floor(height * ratio), 1)
+
+			objs.HpBarBg.Size     = Vector2.new(barW, height)
+			objs.HpBarBg.Position = Vector2.new(barX, top)
+			objs.HpBarBg.Visible  = true
+
+			objs.HpBar.Size     = Vector2.new(barW, fillH)
+			objs.HpBar.Position = Vector2.new(barX, top + height - fillH)
+			objs.HpBar.Color    = hpColor
+			objs.HpBar.Visible  = true
+
+			-- 체력 숫자 (박스 오른쪽)
+			objs.HpLbl.Text     = hp .. "/" .. maxHp
+			objs.HpLbl.Color    = hpColor
+			objs.HpLbl.Position = Vector2.new(left + width + 4, top + height/2 - 6)
+			objs.HpLbl.Visible  = true
+
+			-- 팀 이름 (박스 아래)
+			objs.Team.Text     = "[" .. teamName .. "]"
+			objs.Team.Color    = teamColor
+			objs.Team.Position = Vector2.new(pos.X, top + height + 2)
+			objs.Team.Visible  = true
 		else
-			objs.Box.Visible = false
+			objs.Box.Visible     = false
+			objs.HpBarBg.Visible = false
+			objs.HpBar.Visible   = false
+			objs.HpLbl.Visible   = false
+			objs.Team.Visible    = false
 		end
+
+		-- 이름 (박스 위)
 		if EspNameEnabled then
-			objs.Name.Text = plr.Name
-			objs.Name.Position = Vector2.new(pos.X, pos.Y - 40)
-			objs.Name.Visible = true
+			objs.Name.Text     = plr.Name
+			objs.Name.Position = Vector2.new(pos.X, top - 18)
+			objs.Name.Visible  = true
 		else
 			objs.Name.Visible = false
 		end
@@ -429,7 +514,15 @@ BoxToggle.MouseButton1Click:Connect(function()
 	BoxToggle.Text = EspBoxEnabled and "📦 ESP Box: ON" or "📦 ESP Box: OFF"
 	BoxToggle.BackgroundColor3 = EspBoxEnabled and Color3.fromRGB(0, 170, 80) or Color3.fromRGB(50, 50, 60)
 	if not EspBoxEnabled then
-		for _, objs in pairs(EspObjects) do objs.Box.Visible = false end
+		for _, objs in pairs(EspObjects) do
+			pcall(function()
+				objs.Box.Visible     = false
+				objs.HpBarBg.Visible = false
+				objs.HpBar.Visible   = false
+				objs.HpLbl.Visible   = false
+				objs.Team.Visible    = false
+			end)
+		end
 	end
 end)
 
@@ -438,7 +531,9 @@ NameToggle.MouseButton1Click:Connect(function()
 	NameToggle.Text = EspNameEnabled and "🏷 ESP Name: ON" or "🏷 ESP Name: OFF"
 	NameToggle.BackgroundColor3 = EspNameEnabled and Color3.fromRGB(0, 170, 80) or Color3.fromRGB(50, 50, 60)
 	if not EspNameEnabled then
-		for _, objs in pairs(EspObjects) do objs.Name.Visible = false end
+		for _, objs in pairs(EspObjects) do
+			pcall(function() objs.Name.Visible = false end)
+		end
 	end
 end)
 
@@ -527,7 +622,7 @@ RunService.Stepped:Connect(function()
 	end
 end)
 
--- ===================== Speed (리셋 방지) =====================
+-- ===================== Speed =====================
 local SpeedEnabled = false
 local WalkSpeedValue = 50
 
@@ -559,11 +654,8 @@ SpeedDown.MouseButton1Click:Connect(function()
 	if SpeedEnabled then applySpeed() end
 end)
 
--- 핵심: Speed 켜져 있으면 계속 강제 적용
 RunService.Heartbeat:Connect(function()
-	if SpeedEnabled then
-		applySpeed()
-	end
+	if SpeedEnabled then applySpeed() end
 end)
 
 -- ===================== To (텔레포트) =====================
@@ -710,4 +802,4 @@ _G.ForceHeadshot = function(targetCharacter, damage)
 	return true
 end
 
-print("[AdminGui] Speed 리셋 방지 통합 완료")
+print("[AdminGui] 통합 완료")
